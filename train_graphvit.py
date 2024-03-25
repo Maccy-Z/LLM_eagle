@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from Dataloader.eagle import EagleDataset
+# from Dataloader.eagle import EagleDataset
+from Dataloader.MGN import MGNDataset
 import random
 import numpy as np
 from torch.utils.data import DataLoader
@@ -12,15 +13,15 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('--epoch', default=1000, type=int, help="Number of epochs, set to 0 to evaluate")
 parser.add_argument('--lr', default=1e-4, type=float, help="Learning rate")
-parser.add_argument('--dataset_path', default="/mnt/StorageDisk/fluid_ds/Eagle", type=str,
+parser.add_argument('--dataset_path', default="/home/maccyz/Documents/LLM_Fluid/ds/MGN/cylinder_dataset", type=str,
                     help="Dataset path, caution, the cluster location is induced from this path, make sure this is Ok")
-parser.add_argument('--horizon_val', default=25, type=int, help="Number of timestep to validate on")
-parser.add_argument('--horizon_train', default=2, type=int, help="Number of timestep to train on")
+parser.add_argument('--horizon_val', default=10, type=int, help="Number of timestep to validate on")
+parser.add_argument('--horizon_train', default=4, type=int, help="Number of timestep to train on")
 parser.add_argument('--n_cluster', default=0, type=int, help="Number of nodes per cluster. 0 means no clustering")
 parser.add_argument('--w_size', default=512, type=int, help="Dimension of the latent representation of a cluster")
 parser.add_argument('--alpha', default=0.1, type=float, help="Weighting for the pressure term in the loss")
 parser.add_argument('--batchsize', default=1, type=int, help="Batch size")
-parser.add_argument('--name', default='', type=str, help="Name for saving/loading weights")
+parser.add_argument('--name', default='INSERT_NAME', type=str, help="Name for saving/loading weights")
 args = parser.parse_args()
 
 BATCHSIZE = args.batchsize
@@ -31,7 +32,7 @@ MSE = nn.MSELoss()
 def evaluate():
     print(args)
     length = 400
-    dataset = EagleDataset(args.dataset_path, mode="test", window_length=length,
+    dataset = MGNDataset(args.dataset_path, mode="test", window_length=length,
                            with_cluster=True, n_cluster=args.n_cluster, normalize=True, with_cells=True)
 
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True,
@@ -151,9 +152,9 @@ def get_loss(velocity, pressure, output, state_hat, target, mask):
                                                                                   output[..., 2:] * mask)
     loss = loss
 
-    losses['MSE_pressure'] = loss_pressure
+    # losses['MSE_pressure'] = loss_pressure
     losses['loss'] = loss
-    losses['MSE_velocity'] = loss_velocity
+    # losses['MSE_velocity'] = loss_velocity
 
     return losses
 
@@ -195,14 +196,14 @@ def main():
     np.random.seed(0)
     name = args.name
 
-    train_dataset = EagleDataset(args.dataset_path, mode="train", window_length=args.horizon_train, with_cluster=True,
+    train_dataset = MGNDataset(args.dataset_path, mode="train", window_length=args.horizon_train, with_cluster=True,
                                  n_cluster=args.n_cluster, normalize=True)
-    valid_dataset = EagleDataset(args.dataset_path, mode="valid", window_length=args.horizon_val, with_cluster=True,
+    valid_dataset = MGNDataset(args.dataset_path, mode="valid", window_length=args.horizon_val, with_cluster=True,
                                  n_cluster=args.n_cluster, normalize=True)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCHSIZE, shuffle=True, num_workers=4,
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCHSIZE, shuffle=True, num_workers=0,
                                   pin_memory=False, collate_fn=collate)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=BATCHSIZE, shuffle=False, num_workers=4,
+    valid_dataloader = DataLoader(valid_dataset, batch_size=BATCHSIZE, shuffle=False, num_workers=0,
                                   pin_memory=True, collate_fn=collate)
 
     model = GraphViT(state_size=4, w_size=args.w_size).to(device)
@@ -243,8 +244,8 @@ def main():
         error = validate(model, valid_dataloader, epoch=epoch)
         if error < memory:
             memory = error
-            os.makedirs(f"../trained_models/graphvit/", exist_ok=True)
-            torch.save(model.state_dict(), f"../trained_models/graphvit/{name}.nn")
+            os.makedirs(f"./trained_models/graphvit/", exist_ok=True)
+            torch.save(model.state_dict(), f"./trained_models/graphvit/{name}.nn")
             print("Saved!")
     validate(model, valid_dataloader)
 
