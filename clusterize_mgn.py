@@ -5,14 +5,13 @@ import argparse
 from tqdm import tqdm
 import os
 import numba
+import pickle
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--max_cluster_size', type=int, default=20)
-parser.add_argument('--geom', type=str, default="Step")
-parser.add_argument('--traj', type=int, default=1)
 args = parser.parse_args()
 
-PATH = "/home/maccyz/Documents/LLM_Fluid/ds/Eagle"
+PATH = "/home/maccyz/Documents/LLM_Fluid/ds/MGN/cylinder_dataset"
 
 
 class FluentDataset:
@@ -22,20 +21,27 @@ class FluentDataset:
         assert os.path.exists(self.fn), "Path does not exist"
 
         self.dataloc = []
-        geom_type = args.geom
-        path = os.path.join(self.fn, geom_type)
+        path = self.fn
         for example in os.listdir(path):
-            self.dataloc.append(os.path.join(path, example, str(args.traj)))
+            if "constrained" not in example:
+                self.dataloc.append(os.path.join(path, example))
 
     def __len__(self):
         return len(self.dataloc)
 
     def __getitem__(self, item):
-        path = os.path.join(self.dataloc[item], 'sim.npz')
-        data = np.load(path, mmap_mode='r')
-        mesh_pos = data["pointcloud"].copy().astype(np.float32)
+        path = self.dataloc[item]
+        with open(path, 'rb') as f:
+            data = pickle.load(f)
 
-        node_type = data['mask'].copy().astype(np.int32)
+        mesh_pos = data["mesh_pos"].astype(np.float32)
+
+        # node_type = data['mask'].astype(np.int32)
+        node_type = data["node_type"]
+        node_type = node_type.reshape(-1)
+
+        node_type, mesh_pos = node_type[None], mesh_pos[None]
+
         shape = node_type.shape
         node_type = node_type.reshape(-1)
         node_type = np.eye(9)[node_type.astype(np.int64)]
@@ -232,28 +238,30 @@ def main():
     dataloader = FluentDataset()
     for i in range(len(dataloader)):
         print(f"Processing {i} ({args.max_cluster_size}):")
-        path = os.path.join(dataloader.dataloc[i], f"constrained_kmeans_{args.max_cluster_size}.npy")
+        save_name = dataloader.dataloc[i].split("/")[-1][:-4]
+        path = os.path.join(PATH, f"constrained_kmeans_{save_name}.npy")
 
-        if not os.path.exists(path):
-            x = dataloader[i]
+        x = dataloader[i]
 
-            mesh_pos = x['mesh_pos']
+        mesh_pos = x['mesh_pos']
 
-            # state = np.concatenate([mesh_pos, node_type], axis=-1).astype(np.float32)
-            state = mesh_pos.astype(np.float32)
-            n_clusters = int(np.ceil(state.shape[1] / args.max_cluster_size)) + 1
-            init_cluster_centers = None
+        # state = np.concatenate([mesh_pos, node_type], axis=-1).astype(np.float32)
+        state = mesh_pos.astype(np.float32)
+        n_clusters = int(np.ceil(state.shape[1] / args.max_cluster_size)) + 1
+        init_cluster_centers = None
 
-            label_list = []
-            for t in tqdm(range(state.shape[0])):
-                pointcloud = state[t]
-                labels, init_cluster_centers = constrained_clustering_numpy(pointcloud, init_cluster_centers,
-                                                                            n_clusters, args.max_cluster_size)
-                label_list.append(labels)
-            labels = np.stack(label_list, axis=0)
-            stacked_clusters = process(labels, args.max_cluster_size)
-            stacked_clusters = np.array(stacked_clusters).astype(np.int32)
-            np.save(path, stacked_clusters)
+        label_list = []
+        for t in tqdm(range(state.shape[0])):
+            pointcloud = state[t]
+            labels, init_cluster_centers = constrained_clustering_numpy(pointcloud, init_cluster_centers,
+                                                                        n_clusters, args.max_cluster_size)
+            label_list.append(labels)
+        labels = np.stack(label_list, axis=0)
+        labels = np.repeat(labels, 600, axis=0)
+
+        stacked_clusters = process(labels, args.max_cluster_size)
+        stacked_clusters = np.array(stacked_clusters).astype(np.int32)
+        np.save(path, stacked_clusters)
 
 
 if __name__ == '__main__':

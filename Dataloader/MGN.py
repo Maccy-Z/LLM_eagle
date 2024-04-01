@@ -90,7 +90,8 @@ class MGNDataset(Dataset):
             if self.n_cluster == 0:
                 clusters = torch.arange(mesh_pos.shape[1] + 1).view(1, -1, 1).repeat(velocity.shape[0], 1, 1)
             else:
-                clusters = np.load(os.path.join(cluster_path, f"constrained_kmeans_{self.n_cluster}.npy"),
+                save_name = cluster_path.split("/")[-1][:-4]
+                clusters = np.load(os.path.join(self.fn, f"constrained_kmeans_{save_name}.npy"),
                                    mmap_mode='r')[t:t + self.window_length].copy()
                 clusters = torch.from_numpy(clusters).long()
             output['cluster'] = clusters
